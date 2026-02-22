@@ -10,13 +10,13 @@
 #include <git2.h>
 
 enum class CommitType {
-  kAdd,
-  kFeat,
-  kRefactor,
-  kDeprecated,
-  kFix,
-  kDocs,
-  kTest,
+    kAdd,
+    kFeat,
+    kRefactor,
+    kDeprecated,
+    kFix,
+    kDocs,
+    kTest,
 };
 
 const std::map<CommitType, std::string>& CommitTypeNames();
@@ -33,48 +33,48 @@ const std::string kSSHSuffix = ".git";
 const std::string kHTTPSPrefix = "https://github.com/";
 
 class Changelog {
- public:
-  struct Config {
-    std::string repo = ".";
-    std::string output = "CHANGELOG.md";
-    std::string url;
-    std::vector<std::string> follow;
-  };
+   public:
+    struct Config {
+        std::string repo = ".";
+        std::string output = "CHANGELOG.md";
+        std::string url;
+        std::vector<std::string> follow;
+    };
 
-  explicit Changelog(Config config);
-  ~Changelog();
+    explicit Changelog(Config config);
+    ~Changelog();
 
-  Changelog(const Changelog&) = delete;
-  Changelog& operator=(const Changelog&) = delete;
+    Changelog(const Changelog&) = delete;
+    Changelog& operator=(const Changelog&) = delete;
 
-  void Generate();
+    void Generate();
 
- private:
-  SectionEntries GetGitLogs(const std::string& follow = "");
+   private:
+    SectionEntries GetGitLogs(const std::string& follow = "");
 
-  static std::string FormatChangelog(const ChangelogEntries& entries,
-                                     const std::string& date);
+    static std::string FormatChangelog(const ChangelogEntries& entries,
+                                       const std::string& date);
 
-  static std::string ReadChangelogFile(const std::string& fpath);
+    static std::string ReadChangelogFile(const std::string& fpath);
 
-  static ChangelogEntries ParseChangelog(const std::string& content);
+    static ChangelogEntries ParseChangelog(const std::string& content);
 
-  static ChangelogEntries DiffEntries(const ChangelogEntries& current,
-                                      const ChangelogEntries& existing);
+    static ChangelogEntries DiffEntries(const ChangelogEntries& current,
+                                        const ChangelogEntries& existing);
 
-  static std::optional<CommitType> CategorizeCommit(const std::string& summary);
+    static std::optional<CommitType> CategorizeCommit(const std::string& summary);
 
-  static std::string ShortHash(const git_oid* oid);
-  static std::string FullHash(const git_oid* oid);
-  static std::string FormatDate(git_time_t time);
+    static std::string ShortHash(const git_oid* oid);
+    static std::string FullHash(const git_oid* oid);
+    static std::string FormatDate(git_time_t time);
 
-  bool CommitTouchesPath(git_commit* commit, const std::string& path) const;
+    bool CommitTouchesPath(git_commit* commit, const std::string& path) const;
 
-  std::string SSH2HTTPS(const std::string url);
-  std::string FormatEntry(const std::string& summary, const git_oid* oid);
+    std::string SSH2HTTPS(const std::string url);
+    std::string FormatEntry(const std::string& summary, const git_oid* oid);
 
-  Config config_;
-  git_repository* repo_ = nullptr;
+    Config config_;
+    git_repository* repo_ = nullptr;
 };
 
 #endif  // CHANGELOG_H_

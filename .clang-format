@@ -1,6 +1,6 @@
 BasedOnStyle: Google
 Standard: c++17
-ColumnLimit: 80
+ColumnLimit: 88
 IncludeBlocks: Regroup
 IncludeIsMainRegex: '$^'
 IncludeCategories:
@@ -16,3 +16,4 @@ IncludeCategories:
   - Regex: '^"'
     Priority: 4
     SortPriority: 4
+IndentWidth: 4
