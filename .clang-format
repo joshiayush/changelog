@@ -1,0 +1,18 @@
+BasedOnStyle: Google
+Standard: c++17
+ColumnLimit: 80
+IncludeBlocks: Regroup
+IncludeIsMainRegex: '$^'
+IncludeCategories:
+  - Regex: '^<(sys|unistd|fcntl|signal|errno|dirent|pthread)'
+    Priority: 1
+    SortPriority: 1
+  - Regex: '^<[a-z_]+(\.h)?>$'
+    Priority: 2
+    SortPriority: 2
+  - Regex: '^<'
+    Priority: 3
+    SortPriority: 3
+  - Regex: '^"'
+    Priority: 4
+    SortPriority: 4
