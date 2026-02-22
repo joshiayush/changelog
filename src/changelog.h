@@ -28,6 +28,10 @@ using SectionEntries = std::map<CommitType, std::set<std::string>>;
 // Top-level: section_name -> SectionEntries
 using ChangelogEntries = std::map<std::string, SectionEntries>;
 
+const std::string kSSHPrefix = "git@github.com:";
+const std::string kSSHSuffix = ".git";
+const std::string kHTTPSPrefix = "https://github.com/";
+
 class Changelog {
  public:
   struct Config {
@@ -66,6 +70,7 @@ class Changelog {
 
   bool CommitTouchesPath(git_commit* commit, const std::string& path) const;
 
+  std::string SSH2HTTPS(const std::string url);
   std::string FormatEntry(const std::string& summary, const git_oid* oid);
 
   Config config_;

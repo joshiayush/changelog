@@ -15,7 +15,7 @@ int main(int argc, char* argv[]) {
       .help("Output changelog file path");
 
   program.add_argument("-u", "--url")
-      .required()
+      .default_value(std::string())
       .help(
           "Remote repository URL (e.g., "
           "https://github.com/joshiayush/changelog)");

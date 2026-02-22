@@ -34,9 +34,14 @@ struct GitTreeDeleter {
   void operator()(git_tree* t) const { git_tree_free(t); }
 };
 
+struct GitRemoteDeleter {
+  void operator()(git_remote* r) const { git_remote_free(r); }
+};
+
 using UniqueCommit = std::unique_ptr<git_commit, GitCommitDeleter>;
 using UniqueDiff = std::unique_ptr<git_diff, GitDiffDeleter>;
 using UniqueTree = std::unique_ptr<git_tree, GitTreeDeleter>;
+using UniqueRemote = std::unique_ptr<git_remote, GitRemoteDeleter>;
 
 struct LibGit2Init {
   LibGit2Init() { git_libgit2_init(); }
@@ -84,13 +89,37 @@ const std::map<std::string, CommitType>& PrefixToCommitType() {
 Changelog::Changelog(Config config) : config_(std::move(config)) {
   CheckGit2(git_repository_open(&repo_, config_.repo.c_str()),
             "Failed to open repository at " + config_.repo);
-  spdlog::debug("Opened repository: {}", config_.repo);
+  if (config_.url.empty()) {
+    git_remote* remote_raw = nullptr;
+    int e = git_remote_lookup(&remote_raw, repo_, "origin");
+    UniqueRemote remote(remote_raw);
+    if (e == 0) {
+      config_.url = std::string(git_remote_url(remote.get()));
+    } else if (e == GIT_ENOTFOUND) {
+      spdlog::error("Repository {} not found.", config_.repo);
+      std::exit(e);
+    } else if (e == GIT_EINVALIDSPEC) {
+      spdlog::error("ref/spec was not in valid format.");
+      std::exit(e);
+    }
+  }
+  if (config_.url.compare(0, kSSHPrefix.length(), kSSHPrefix) == 0) {
+    config_.url = this->SSH2HTTPS(config_.url);
+  }
 }
 
 Changelog::~Changelog() {
   if (repo_) {
     git_repository_free(repo_);
   }
+}
+
+std::string Changelog::SSH2HTTPS(const std::string url) {
+  std::size_t end = config_.url.length();
+  end = end - kSSHPrefix.length() - kSSHSuffix.length();
+  std::string https = url.substr(kSSHPrefix.length(), end);
+  https = kHTTPSPrefix + https;
+  return https;
 }
 
 std::string Changelog::ShortHash(const git_oid* oid) {
@@ -210,7 +239,7 @@ SectionEntries Changelog::GetGitLogs(const std::string& follow_path) {
     std::string entry = FormatEntry(summary, &oid);
     entries[*type].insert(entry);
 
-    spdlog::debug("  {} -> {}", CommitTypeNames().at(*type), entry);
+    spdlog::debug("{} -> {}", CommitTypeNames().at(*type), entry);
   }
 
   return entries;
@@ -333,8 +362,6 @@ ChangelogEntries Changelog::DiffEntries(const ChangelogEntries& current,
 }
 
 void Changelog::Generate() {
-  spdlog::info("Generating changelog for: {}", config_.repo);
-
   // Get today's date.
   auto now = std::chrono::system_clock::now();
   std::time_t now_t = std::chrono::system_clock::to_time_t(now);
