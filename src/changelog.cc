@@ -11,6 +11,7 @@
 #include <spdlog/spdlog.h>
 
 #include "changelog.h"
+#include "utils.h"
 
 namespace {
 
@@ -99,6 +100,9 @@ Changelog::Changelog(Config config) : config_(std::move(config)) {
     if (config_.url.compare(0, kSSHPrefix.length(), kSSHPrefix) == 0) {
         config_.url = this->SSH2HTTPS(config_.url);
     }
+    config_.repo_name = config_.url;
+    std::vector<std::string> comps = split(config_.url, "/");
+    config_.repo_name = comps[comps.size() - 1];
 }
 
 Changelog::~Changelog() {
@@ -240,7 +244,8 @@ std::string Changelog::FormatChangelog(const ChangelogEntries& entries,
     const auto& type_names = CommitTypeNames();
 
     for (const auto& [section, section_entries] : entries) {
-        std::string display_section = section.empty() ? "All Changes" : section;
+        std::string display_section =
+            section.empty() ? this->config_.repo_name : section;
         out << "## " << display_section << " \u2014 " << date << "\n\n";
 
         for (const auto& [type, logs] : section_entries) {

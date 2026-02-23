@@ -37,6 +37,7 @@ class Changelog {
     struct Config {
         std::string repo = ".";
         std::string output = "CHANGELOG.md";
+        std::string repo_name;
         std::string url;
         std::vector<std::string> follow;
     };
@@ -52,8 +53,8 @@ class Changelog {
    private:
     SectionEntries GetGitLogs(const std::string& follow = "");
 
-    static std::string FormatChangelog(const ChangelogEntries& entries,
-                                       const std::string& date);
+    std::string FormatChangelog(const ChangelogEntries& entries,
+                                const std::string& date);
 
     static std::string ReadChangelogFile(const std::string& fpath);
 
