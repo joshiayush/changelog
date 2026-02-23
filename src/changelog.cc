@@ -51,12 +51,12 @@ struct LibGit2Init {
 
 static LibGit2Init g_libgit2_init;
 
-void CheckGit2(int error, const std::string& message) {
-    if (error < 0) {
-        const git_error* e = git_error_last();
-        throw std::runtime_error(message + ": " + (e ? e->message : "unknown error"));
+#define _CHECK_GIT2(error, msg)                                       \
+    if (error < 0) {                                                  \
+        const git_error* e = git_error_last();                        \
+        throw std::runtime_error(std::string(msg) + ": " +            \
+                                 (e ? e->message : "unknown error")); \
     }
-}
 
 }  // namespace
 
@@ -81,8 +81,8 @@ const std::map<std::string, CommitType>& PrefixToCommitType() {
 }
 
 Changelog::Changelog(Config config) : config_(std::move(config)) {
-    CheckGit2(git_repository_open(&repo_, config_.repo.c_str()),
-              "Failed to open repository at " + config_.repo);
+    _CHECK_GIT2(git_repository_open(&repo_, config_.repo.c_str()),
+                "Failed to open repository at " + config_.repo);
     if (config_.url.empty()) {
         git_remote* remote_raw = nullptr;
         int e = git_remote_lookup(&remote_raw, repo_, "origin");
@@ -172,18 +172,18 @@ std::string Changelog::FormatEntry(const std::string& summary, const git_oid* oi
 
 bool Changelog::CommitTouchesPath(git_commit* commit, const std::string& path) const {
     git_tree* commit_tree_raw = nullptr;
-    CheckGit2(git_commit_tree(&commit_tree_raw, commit), "Failed to get tree");
+    _CHECK_GIT2(git_commit_tree(&commit_tree_raw, commit), "Failed to get tree");
     UniqueTree commit_tree(commit_tree_raw);
 
     UniqueTree parent_tree;
     if (git_commit_parentcount(commit) > 0) {
         git_commit* parent_raw = nullptr;
-        CheckGit2(git_commit_parent(&parent_raw, commit, 0), "Failed to get parent");
+        _CHECK_GIT2(git_commit_parent(&parent_raw, commit, 0), "Failed to get parent");
         UniqueCommit parent(parent_raw);
 
         git_tree* parent_tree_raw = nullptr;
-        CheckGit2(git_commit_tree(&parent_tree_raw, parent.get()),
-                  "Failed to get parent tree");
+        _CHECK_GIT2(git_commit_tree(&parent_tree_raw, parent.get()),
+                    "Failed to get parent tree");
         parent_tree.reset(parent_tree_raw);
     }
 
@@ -194,9 +194,9 @@ bool Changelog::CommitTouchesPath(git_commit* commit, const std::string& path) c
     opts.pathspec.count = 1;
 
     git_diff* diff_raw = nullptr;
-    CheckGit2(git_diff_tree_to_tree(&diff_raw, repo_, parent_tree.get(),
-                                    commit_tree.get(), &opts),
-              "Failed to diff trees");
+    _CHECK_GIT2(git_diff_tree_to_tree(&diff_raw, repo_, parent_tree.get(),
+                                      commit_tree.get(), &opts),
+                "Failed to diff trees");
     UniqueDiff diff(diff_raw);
 
     return git_diff_num_deltas(diff.get()) > 0;
@@ -206,17 +206,17 @@ SectionEntries Changelog::GetGitLogs(const std::string& follow_path) {
     SectionEntries entries;
 
     git_revwalk* walker_raw = nullptr;
-    CheckGit2(git_revwalk_new(&walker_raw, repo_), "Failed to create revwalk");
+    _CHECK_GIT2(git_revwalk_new(&walker_raw, repo_), "Failed to create revwalk");
     std::unique_ptr<git_revwalk, GitRevwalkDeleter> walker(walker_raw);
 
-    CheckGit2(git_revwalk_push_head(walker.get()), "Failed to push HEAD");
+    _CHECK_GIT2(git_revwalk_push_head(walker.get()), "Failed to push HEAD");
     git_revwalk_sorting(walker.get(), GIT_SORT_TIME);
 
     git_oid oid;
     while (git_revwalk_next(&oid, walker.get()) == 0) {
         git_commit* commit_raw = nullptr;
-        CheckGit2(git_commit_lookup(&commit_raw, repo_, &oid),
-                  "Failed to lookup commit");
+        _CHECK_GIT2(git_commit_lookup(&commit_raw, repo_, &oid),
+                    "Failed to lookup commit");
         UniqueCommit commit(commit_raw);
 
         if (!follow_path.empty() && !CommitTouchesPath(commit.get(), follow_path)) {
