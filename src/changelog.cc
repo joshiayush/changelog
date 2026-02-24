@@ -494,14 +494,22 @@ void Changelog::Generate() {
     }
 
     // Compute version for the new section(s).
+    // If no existing sections, use the seed version directly (first release).
+    bool first_release = existing_sections.empty();
     std::vector<std::pair<std::string, SectionData>> new_versioned;
     for (auto& [name, data] : new_sections) {
-        std::set<CommitType> types;
-        for (const auto& [type, _] : data.entries) {
-            types.insert(type);
+        SemanticVersion new_ver;
+        if (first_release) {
+            new_ver = seed;
+            first_release = false;
+        } else {
+            std::set<CommitType> types;
+            for (const auto& [type, _] : data.entries) {
+                types.insert(type);
+            }
+            new_ver =
+                ComputeNextVersion(last_version, types, data.has_breaking_change);
         }
-        SemanticVersion new_ver =
-            ComputeNextVersion(last_version, types, data.has_breaking_change);
         std::string versioned_name = name + "@" + new_ver.ToString();
         new_versioned.emplace_back(versioned_name, std::move(data));
         last_version = new_ver;
