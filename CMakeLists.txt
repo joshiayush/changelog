@@ -30,7 +30,7 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(spdlog argparse libgit2)
 
-add_executable(changelog src/main.cc src/changelog.cc src/utils.cc)
+add_executable(changelog src/main.cc src/changelog.cc src/utils.cc src/version.cc)
 target_link_libraries(changelog PRIVATE spdlog::spdlog argparse::argparse libgit2package)
 target_include_directories(changelog PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/include

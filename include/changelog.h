@@ -5,9 +5,12 @@
 #include <optional>
 #include <set>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <git2.h>
+
+#include "version.h"
 
 enum class CommitType {
     kAdd,
@@ -17,16 +20,27 @@ enum class CommitType {
     kFix,
     kDocs,
     kTest,
+    kPerf,
 };
 
 const std::map<CommitType, std::string>& CommitTypeNames();
 const std::map<std::string, CommitType>& PrefixToCommitType();
 
-// section_name -> { commit_type -> set<formatted_entry> }
+// commit_type -> set<formatted_entry>
 using SectionEntries = std::map<CommitType, std::set<std::string>>;
 
-// Top-level: section_name -> SectionEntries
-using ChangelogEntries = std::map<std::string, SectionEntries>;
+struct SectionData {
+    SectionEntries entries;
+    bool has_breaking_change = false;
+};
+
+struct ParsedSection {
+    std::string name;
+    std::optional<SemanticVersion> version;
+    std::string date;
+    SectionEntries entries;
+    bool has_breaking_change = false;
+};
 
 const std::string kSSHPrefix = "git@github.com:";
 const std::string kSSHSuffix = ".git";
@@ -51,23 +65,32 @@ class Changelog {
     void Generate();
 
    private:
-    SectionEntries GetGitLogs(const std::string& follow = "");
+    SectionData GetGitLogs(const std::string& follow = "");
 
-    std::string FormatChangelog(const ChangelogEntries& entries,
-                                const std::string& date);
+    std::string FormatChangelog(
+        const std::vector<std::pair<std::string, SectionData>>& sections,
+        const std::string& date);
 
     static std::string ReadChangelogFile(const std::string& fpath);
 
-    static ChangelogEntries ParseChangelog(const std::string& content);
+    static std::vector<ParsedSection> ParseChangelogStructured(
+        const std::string& content);
 
-    static ChangelogEntries DiffEntries(const ChangelogEntries& current,
-                                        const ChangelogEntries& existing);
+    static std::set<std::string> FlattenEntries(
+        const std::vector<ParsedSection>& sections);
+
+    static SectionData FilterNewEntries(
+        const SectionData& current,
+        const std::set<std::string>& existing_entries);
 
     static std::optional<CommitType> CategorizeCommit(const std::string& summary);
+    static bool IsBreakingChange(const std::string& summary);
 
     static std::string ShortHash(const git_oid* oid);
     static std::string FullHash(const git_oid* oid);
     static std::string FormatDate(git_time_t time);
+
+    SemanticVersion DetectInitialVersion() const;
 
     bool CommitTouchesPath(git_commit* commit, const std::string& path) const;
 

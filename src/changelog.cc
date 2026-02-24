@@ -12,6 +12,7 @@
 
 #include "changelog.h"
 #include "utils.h"
+#include "version.h"
 
 namespace {
 
@@ -65,7 +66,7 @@ const std::map<CommitType, std::string>& CommitTypeNames() {
         {CommitType::kAdd, "Add"},           {CommitType::kFeat, "Feat"},
         {CommitType::kRefactor, "Refactor"}, {CommitType::kDeprecated, "Deprecated"},
         {CommitType::kFix, "Fix"},           {CommitType::kDocs, "Docs"},
-        {CommitType::kTest, "Test"},
+        {CommitType::kTest, "Test"},         {CommitType::kPerf, "Perf"},
     };
     return names;
 }
@@ -75,7 +76,7 @@ const std::map<std::string, CommitType>& PrefixToCommitType() {
         {"add", CommitType::kAdd},           {"feat", CommitType::kFeat},
         {"refactor", CommitType::kRefactor}, {"deprecated", CommitType::kDeprecated},
         {"fix", CommitType::kFix},           {"docs", CommitType::kDocs},
-        {"test", CommitType::kTest},
+        {"test", CommitType::kTest},         {"perf", CommitType::kPerf},
     };
     return prefixes;
 }
@@ -140,6 +141,14 @@ std::string Changelog::FormatDate(git_time_t time) {
     return std::string(buf);
 }
 
+bool Changelog::IsBreakingChange(const std::string& summary) {
+    auto colon_pos = summary.find(':');
+    if (colon_pos == std::string::npos || colon_pos == 0) {
+        return false;
+    }
+    return summary[colon_pos - 1] == '!';
+}
+
 std::optional<CommitType> Changelog::CategorizeCommit(const std::string& summary) {
     auto colon_pos = summary.find(':');
     if (colon_pos == std::string::npos) {
@@ -153,6 +162,10 @@ std::optional<CommitType> Changelog::CategorizeCommit(const std::string& summary
     auto paren_pos = prefix.find('(');
     if (paren_pos != std::string::npos) {
         prefix = prefix.substr(0, paren_pos);
+    }
+    // Strip breaking-change marker: "feat!" -> "feat"
+    if (!prefix.empty() && prefix.back() == '!') {
+        prefix.pop_back();
     }
 
     const auto& prefixes = PrefixToCommitType();
@@ -202,8 +215,8 @@ bool Changelog::CommitTouchesPath(git_commit* commit, const std::string& path) c
     return git_diff_num_deltas(diff.get()) > 0;
 }
 
-SectionEntries Changelog::GetGitLogs(const std::string& follow_path) {
-    SectionEntries entries;
+SectionData Changelog::GetGitLogs(const std::string& follow_path) {
+    SectionData data;
 
     git_revwalk* walker_raw = nullptr;
     _CHECK_GIT2(git_revwalk_new(&walker_raw, repo_), "Failed to create revwalk");
@@ -226,27 +239,67 @@ SectionEntries Changelog::GetGitLogs(const std::string& follow_path) {
         const char* summary = git_commit_summary(commit.get());
         if (!summary) continue;
 
+        if (IsBreakingChange(summary)) {
+            data.has_breaking_change = true;
+        }
+
         auto type = CategorizeCommit(summary);
         if (!type) continue;
 
         std::string entry = FormatEntry(summary, &oid);
-        entries[*type].insert(entry);
+        data.entries[*type].insert(entry);
 
         spdlog::debug("{} -> {}", CommitTypeNames().at(*type), entry);
     }
 
-    return entries;
+    return data;
 }
 
-std::string Changelog::FormatChangelog(const ChangelogEntries& entries,
-                                       const std::string& date) {
+SemanticVersion Changelog::DetectInitialVersion() const {
+    git_strarray tags = {};
+    int err = git_tag_list(&tags, repo_);
+    if (err < 0) {
+        spdlog::debug("No tags found, using default v0.1.0");
+        return {0, 1, 0};
+    }
+
+    SemanticVersion highest = {0, 0, 0};
+    bool found_any = false;
+
+    for (size_t i = 0; i < tags.count; ++i) {
+        std::string tag_name(tags.strings[i]);
+        try {
+            SemanticVersion v = SemanticVersion::Parse(tag_name);
+            if (!found_any || highest < v) {
+                highest = v;
+                found_any = true;
+            }
+        } catch (...) {
+            continue;
+        }
+    }
+
+    git_strarray_free(&tags);
+
+    if (!found_any) {
+        spdlog::debug("No semver tags found, using default v0.1.0");
+        return {0, 1, 0};
+    }
+
+    spdlog::debug("Detected latest version from tags: {}", highest.ToString());
+    return highest;
+}
+
+std::string Changelog::FormatChangelog(
+    const std::vector<std::pair<std::string, SectionData>>& sections,
+    const std::string& date) {
     std::ostringstream out;
     const auto& type_names = CommitTypeNames();
 
-    for (const auto& [section, section_entries] : entries) {
-        out << "## " << section << " \u2014 " << date << "\n\n";
+    for (const auto& [section_name, data] : sections) {
+        out << "## " << section_name << " \u2014 " << date << "\n\n";
 
-        for (const auto& [type, logs] : section_entries) {
+        for (const auto& [type, logs] : data.entries) {
             if (logs.empty()) continue;
             out << "### " << type_names.at(type) << "\n\n";
             for (const auto& log : logs) {
@@ -280,17 +333,19 @@ std::string Changelog::ReadChangelogFile(const std::string& fpath) {
     return content;
 }
 
-ChangelogEntries Changelog::ParseChangelog(const std::string& content) {
-    ChangelogEntries entries;
+std::vector<ParsedSection> Changelog::ParseChangelogStructured(
+    const std::string& content) {
+    std::vector<ParsedSection> sections;
 
-    std::string cur_section;
+    ParsedSection* cur = nullptr;
     std::optional<CommitType> cur_type;
 
-    // Match: ## Section — YYYY-MM-DD  or  ## Section -- YYYY-MM-DD
-    std::regex section_re(R"(^## (.+?)\s+(?:--|—)\s+(\d{4}-\d{2}-\d{2})$)");
-    // Match: ### TypeName
+    // Match both old and new formats:
+    //   ## repo_name — YYYY-MM-DD
+    //   ## repo_name@vX.Y.Z — YYYY-MM-DD
+    std::regex section_re(
+        R"(^## (.+?)(?:@(v\d+\.\d+\.\d+))?\s+(?:--|—)\s+(\d{4}-\d{2}-\d{2})$)");
     std::regex type_re(R"(^### (\w+)$)");
-    // Match: - entry text
     std::regex entry_re(R"(^- (.+)$)");
 
     std::istringstream stream(content);
@@ -301,55 +356,59 @@ ChangelogEntries Changelog::ParseChangelog(const std::string& content) {
         std::smatch match;
 
         if (std::regex_match(line, match, section_re)) {
-            cur_section = match[1].str();
+            sections.emplace_back();
+            cur = &sections.back();
+            cur->name = match[1].str();
+            if (match[2].matched) {
+                cur->version = SemanticVersion::Parse(match[2].str());
+            }
+            cur->date = match[3].str();
             cur_type = std::nullopt;
         } else if (std::regex_match(line, match, type_re)) {
             std::string type_str = match[1].str();
             std::transform(type_str.begin(), type_str.end(), type_str.begin(),
                            ::tolower);
             auto it = prefixes.find(type_str);
-            if (it != prefixes.end()) {
-                cur_type = it->second;
-            } else {
-                cur_type = std::nullopt;
+            cur_type =
+                (it != prefixes.end()) ? std::optional(it->second) : std::nullopt;
+        } else if (std::regex_match(line, match, entry_re) && cur_type && cur) {
+            std::string entry_text = match[1].str();
+            cur->entries[*cur_type].insert(entry_text);
+            // Detect breaking change from preserved commit summary.
+            if (entry_text.find("!:") != std::string::npos) {
+                cur->has_breaking_change = true;
             }
-        } else if (std::regex_match(line, match, entry_re) && cur_type) {
-            entries[cur_section][*cur_type].insert(match[1].str());
         }
     }
 
-    return entries;
+    return sections;
 }
 
-ChangelogEntries Changelog::DiffEntries(const ChangelogEntries& current,
-                                        const ChangelogEntries& existing) {
-    ChangelogEntries result;
+std::set<std::string> Changelog::FlattenEntries(
+    const std::vector<ParsedSection>& sections) {
+    std::set<std::string> all;
+    for (const auto& sec : sections) {
+        for (const auto& [type, logs] : sec.entries) {
+            all.insert(logs.begin(), logs.end());
+        }
+    }
+    return all;
+}
 
-    for (const auto& [section, section_entries] : current) {
-        for (const auto& [type, logs] : section_entries) {
-            std::set<std::string> new_logs;
-
-            auto existing_section = existing.find(section);
-            if (existing_section != existing.end()) {
-                auto existing_type = existing_section->second.find(type);
-                if (existing_type != existing_section->second.end()) {
-                    std::set_difference(logs.begin(), logs.end(),
-                                        existing_type->second.begin(),
-                                        existing_type->second.end(),
-                                        std::inserter(new_logs, new_logs.begin()));
-                } else {
-                    new_logs = logs;
+SectionData Changelog::FilterNewEntries(const SectionData& current,
+                                        const std::set<std::string>& existing_entries) {
+    SectionData result;
+    for (const auto& [type, logs] : current.entries) {
+        for (const auto& log : logs) {
+            if (existing_entries.find(log) == existing_entries.end()) {
+                result.entries[type].insert(log);
+                // Recompute breaking-change flag from filtered entries only.
+                if (log.find("!:") != std::string::npos) {
+                    result.has_breaking_change = true;
                 }
-            } else {
-                new_logs = logs;
-            }
-
-            if (!new_logs.empty()) {
-                result[section][type] = std::move(new_logs);
             }
         }
     }
-
     return result;
 }
 
@@ -363,27 +422,93 @@ void Changelog::Generate() {
     std::strftime(date_buf, sizeof(date_buf), "%Y-%m-%d", &tm);
     std::string today(date_buf);
 
-    // Collect git logs.
-    ChangelogEntries current;
+    // Collect current git logs.
+    std::map<std::string, SectionData> current_sections;
     if (config_.follow.empty()) {
         spdlog::debug("Getting logs for entire repository");
-        current[config_.repo_name] = GetGitLogs();
+        current_sections[config_.repo_name] = GetGitLogs();
     } else {
         for (const auto& path : config_.follow) {
             spdlog::debug("Getting logs for path: {}", path);
-            current[path] = GetGitLogs(path);
+            current_sections[path] = GetGitLogs(path);
         }
     }
 
     // Read and parse existing changelog.
-    std::string existing_content = ReadChangelogFile(config_.output);
-    ChangelogEntries existing = ParseChangelog(existing_content);
+    std::string existing_raw = ReadChangelogFile(config_.output);
+    auto existing_sections = ParseChangelogStructured(existing_raw);
+    std::set<std::string> existing_flat = FlattenEntries(existing_sections);
 
-    // Compute new entries.
-    ChangelogEntries new_entries = DiffEntries(current, existing);
+    // Filter out already-recorded entries.
+    std::map<std::string, SectionData> new_sections;
+    for (auto& [name, data] : current_sections) {
+        SectionData filtered = FilterNewEntries(data, existing_flat);
+        if (!filtered.entries.empty()) {
+            new_sections[name] = std::move(filtered);
+        }
+    }
+
+    // Detect initial version from git tags.
+    SemanticVersion seed = DetectInitialVersion();
+
+    // Determine the last version from existing sections.
+    SemanticVersion last_version = seed;
+    bool needs_backfill = false;
+
+    if (!existing_sections.empty() && existing_sections.front().version) {
+        last_version = *existing_sections.front().version;
+    } else if (!existing_sections.empty()) {
+        needs_backfill = true;
+    }
+
+    // Backfill versions on old unversioned sections.
+    std::string existing_content;
+    if (needs_backfill) {
+        const auto& type_names = CommitTypeNames();
+        std::ostringstream oss;
+
+        // Assign the detected tag version to old unversioned sections.
+        // We can't accurately reconstruct per-section versions from
+        // changelog text alone, so they all get the tag version.
+        for (auto& sec : existing_sections) {
+            sec.version = seed;
+        }
+        last_version = seed;
+
+        // Re-format existing content with versions.
+        for (const auto& sec : existing_sections) {
+            oss << "## " << sec.name << "@" << sec.version->ToString() << " \u2014 "
+                << sec.date << "\n\n";
+            for (const auto& [type, logs] : sec.entries) {
+                if (logs.empty()) continue;
+                oss << "### " << type_names.at(type) << "\n\n";
+                for (const auto& log : logs) {
+                    oss << "- " << log << "\n";
+                }
+                oss << "\n";
+            }
+        }
+        existing_content = oss.str();
+    } else {
+        existing_content = existing_raw;
+    }
+
+    // Compute version for the new section(s).
+    std::vector<std::pair<std::string, SectionData>> new_versioned;
+    for (auto& [name, data] : new_sections) {
+        std::set<CommitType> types;
+        for (const auto& [type, _] : data.entries) {
+            types.insert(type);
+        }
+        SemanticVersion new_ver =
+            ComputeNextVersion(last_version, types, data.has_breaking_change);
+        std::string versioned_name = name + "@" + new_ver.ToString();
+        new_versioned.emplace_back(versioned_name, std::move(data));
+        last_version = new_ver;
+    }
 
     // Format and write.
-    std::string new_markdown = FormatChangelog(new_entries, today);
+    std::string new_markdown = FormatChangelog(new_versioned, today);
 
     std::ofstream out(config_.output);
     if (!out.is_open()) {
