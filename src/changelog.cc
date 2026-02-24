@@ -244,9 +244,7 @@ std::string Changelog::FormatChangelog(const ChangelogEntries& entries,
     const auto& type_names = CommitTypeNames();
 
     for (const auto& [section, section_entries] : entries) {
-        std::string display_section =
-            section.empty() ? this->config_.repo_name : section;
-        out << "## " << display_section << " \u2014 " << date << "\n\n";
+        out << "## " << section << " \u2014 " << date << "\n\n";
 
         for (const auto& [type, logs] : section_entries) {
             if (logs.empty()) continue;
@@ -369,7 +367,7 @@ void Changelog::Generate() {
     ChangelogEntries current;
     if (config_.follow.empty()) {
         spdlog::debug("Getting logs for entire repository");
-        current[""] = GetGitLogs();
+        current[config_.repo_name] = GetGitLogs();
     } else {
         for (const auto& path : config_.follow) {
             spdlog::debug("Getting logs for path: {}", path);
