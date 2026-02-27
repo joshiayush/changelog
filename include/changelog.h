@@ -26,8 +26,16 @@ enum class CommitType {
 const std::map<CommitType, std::string>& CommitTypeNames();
 const std::map<std::string, CommitType>& PrefixToCommitType();
 
+struct CommitEntry {
+    const std::string summary;
+    const git_oid oid;
+    const std::string author_name;
+
+    bool operator<(const CommitEntry& o) const { return summary < o.summary; }
+};
+
 // commit_type -> set<formatted_entry>
-using SectionEntries = std::map<CommitType, std::set<std::string>>;
+using SectionEntries = std::map<CommitType, std::set<CommitEntry>>;
 
 struct SectionData {
     SectionEntries entries;
@@ -76,11 +84,11 @@ class Changelog {
     static std::vector<ParsedSection> ParseChangelogStructured(
         const std::string& content);
 
-    static std::set<std::string> FlattenEntries(
+    static std::set<CommitEntry> FlattenEntries(
         const std::vector<ParsedSection>& sections);
 
     static SectionData FilterNewEntries(const SectionData& current,
-                                        const std::set<std::string>& existing_entries);
+                                        const std::set<CommitEntry>& existing_entries);
 
     static std::optional<CommitType> CategorizeCommit(const std::string& summary);
     static bool IsBreakingChange(const std::string& summary);
@@ -94,8 +102,7 @@ class Changelog {
     bool CommitTouchesPath(git_commit* commit, const std::string& path) const;
 
     std::string SSH2HTTPS(const std::string url);
-    std::string FormatEntry(const std::string& summary, const git_oid* oid,
-                            const git_signature* author);
+    std::string FormatEntry(const CommitEntry& entry);
 
     Config config_;
     git_repository* repo_ = nullptr;

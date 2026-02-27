@@ -176,11 +176,10 @@ std::optional<CommitType> Changelog::CategorizeCommit(const std::string& summary
     return std::nullopt;
 }
 
-std::string Changelog::FormatEntry(const std::string& summary, const git_oid* oid,
-                                   const git_signature* author) {
-    std::string short_hash = ShortHash(oid);
-    std::string full_hash = FullHash(oid);
-    return summary + " by " + author->name + " in [#" + short_hash + "](" +
+std::string Changelog::FormatEntry(const CommitEntry& entry) {
+    std::string short_hash = ShortHash(&entry.oid);
+    std::string full_hash = FullHash(&entry.oid);
+    return entry.summary + " by " + entry.author_name + " in [#" + short_hash + "](" +
            config_.url + "/commit/" + full_hash + ")";
 }
 
@@ -247,10 +246,14 @@ SectionData Changelog::GetGitLogs(const std::string& follow_path) {
         auto type = CategorizeCommit(summary);
         if (!type) continue;
 
-        std::string entry = FormatEntry(summary, &oid, git_commit_author(commit.get()));
+        CommitEntry entry{
+            .summary = summary,
+            .oid = oid,
+            .author_name = git_commit_author(commit.get())->name,
+        };
         data.entries[*type].insert(entry);
 
-        spdlog::debug("{} -> {}", CommitTypeNames().at(*type), entry);
+        spdlog::debug("{} -> {}", CommitTypeNames().at(*type), entry.summary);
     }
 
     return data;
@@ -304,7 +307,7 @@ std::string Changelog::FormatChangelog(
             if (logs.empty()) continue;
             out << "### " << type_names.at(type) << "\n\n";
             for (const auto& log : logs) {
-                out << "- " << log << "\n";
+                out << "- " << FormatEntry(log) << "\n";
             }
             out << "\n";
         }
@@ -347,7 +350,10 @@ std::vector<ParsedSection> Changelog::ParseChangelogStructured(
     std::regex section_re(
         R"(^## (.+?)(?:@(v\d+\.\d+\.\d+))?\s+(?:--|—)\s+(\d{4}-\d{2}-\d{2})$)");
     std::regex type_re(R"(^### (\w+)$)");
-    std::regex entry_re(R"(^- (.+)$)");
+    std::regex entry_re(
+        R"(^- (.+) by (.+) in \[#([a-f0-9]+)\]\((.+)/commit/([a-f0-9]+)\)$)");
+    std::regex old_entry_re(
+        R"(^- (.+) \(\[#([a-f0-9]+)\]\((.+)/commit/([a-f0-9]+)\)\)$)");
 
     std::istringstream stream(content);
     std::string line;
@@ -373,10 +379,30 @@ std::vector<ParsedSection> Changelog::ParseChangelogStructured(
             cur_type =
                 (it != prefixes.end()) ? std::optional(it->second) : std::nullopt;
         } else if (std::regex_match(line, match, entry_re) && cur_type && cur) {
-            std::string entry_text = match[1].str();
-            cur->entries[*cur_type].insert(entry_text);
+            git_oid oid;
+            git_oid_fromstr(&oid, match[5].str().c_str());
+            const CommitEntry entry = {
+                .summary = match[1].str(),
+                .oid = oid,
+                .author_name = match[2].str(),
+            };
+            cur->entries[*cur_type].insert(entry);
             // Detect breaking change from preserved commit summary.
-            if (entry_text.find("!:") != std::string::npos) {
+            if (entry.summary.find("!:") != std::string::npos) {
+                cur->has_breaking_change = true;
+            }
+        } else if (std::regex_match(line, match, old_entry_re) && cur_type && cur) {
+            // Changelog written using version v0.1.0
+            git_oid oid;
+            git_oid_fromstr(&oid, match[4].str().c_str());
+            const CommitEntry entry = {
+                .summary = match[1].str(),
+                .oid = oid,
+                .author_name = "",
+            };
+            cur->entries[*cur_type].insert(entry);
+            // Detect breaking change from preserved commit summary.
+            if (entry.summary.find("!:") != std::string::npos) {
                 cur->has_breaking_change = true;
             }
         }
@@ -385,9 +411,9 @@ std::vector<ParsedSection> Changelog::ParseChangelogStructured(
     return sections;
 }
 
-std::set<std::string> Changelog::FlattenEntries(
+std::set<CommitEntry> Changelog::FlattenEntries(
     const std::vector<ParsedSection>& sections) {
-    std::set<std::string> all;
+    std::set<CommitEntry> all;
     for (const auto& sec : sections) {
         for (const auto& [type, logs] : sec.entries) {
             all.insert(logs.begin(), logs.end());
@@ -397,14 +423,14 @@ std::set<std::string> Changelog::FlattenEntries(
 }
 
 SectionData Changelog::FilterNewEntries(const SectionData& current,
-                                        const std::set<std::string>& existing_entries) {
+                                        const std::set<CommitEntry>& existing_entries) {
     SectionData result;
     for (const auto& [type, logs] : current.entries) {
         for (const auto& log : logs) {
             if (existing_entries.find(log) == existing_entries.end()) {
                 result.entries[type].insert(log);
                 // Recompute breaking-change flag from filtered entries only.
-                if (log.find("!:") != std::string::npos) {
+                if (log.summary.find("!:") != std::string::npos) {
                     result.has_breaking_change = true;
                 }
             }
@@ -438,7 +464,7 @@ void Changelog::Generate() {
     // Read and parse existing changelog.
     std::string existing_raw = ReadChangelogFile(config_.output);
     auto existing_sections = ParseChangelogStructured(existing_raw);
-    std::set<std::string> existing_flat = FlattenEntries(existing_sections);
+    std::set<CommitEntry> existing_flat = FlattenEntries(existing_sections);
 
     // Filter out already-recorded entries.
     std::map<std::string, SectionData> new_sections;
@@ -484,7 +510,7 @@ void Changelog::Generate() {
                 if (logs.empty()) continue;
                 oss << "### " << type_names.at(type) << "\n\n";
                 for (const auto& log : logs) {
-                    oss << "- " << log << "\n";
+                    oss << "- " << FormatEntry(log) << "\n";
                 }
                 oss << "\n";
             }
