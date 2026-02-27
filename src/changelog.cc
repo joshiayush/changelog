@@ -179,7 +179,7 @@ std::optional<CommitType> Changelog::CategorizeCommit(const std::string& summary
 std::string Changelog::FormatEntry(const CommitEntry& entry) {
     std::string short_hash = ShortHash(&entry.oid);
     std::string full_hash = FullHash(&entry.oid);
-    return entry.summary + " by **@" + entry.author_name + "** in [#" + short_hash +
+    return entry.summary + " by **" + entry.author_name + "** in [#" + short_hash +
            "](" + config_.url + "/commit/" + full_hash + ")";
 }
 
@@ -351,7 +351,7 @@ std::vector<ParsedSection> Changelog::ParseChangelogStructured(
         R"(^## (.+?)(?:@(v\d+\.\d+\.\d+))?\s+(?:--|—)\s+(\d{4}-\d{2}-\d{2})$)");
     std::regex type_re(R"(^### (\w+)$)");
     std::regex entry_re(
-        R"(^- (.+) by (.+) in \[#([a-f0-9]+)\]\((.+)/commit/([a-f0-9]+)\)$)");
+        R"(^- (.+) by \*\*(.+)\*\* in \[#([a-f0-9]+)\]\((.+)/commit/([a-f0-9]+)\)$)");
     std::regex old_entry_re(
         R"(^- (.+) \(\[#([a-f0-9]+)\]\((.+)/commit/([a-f0-9]+)\)\)$)");
 
