@@ -179,8 +179,8 @@ std::optional<CommitType> Changelog::CategorizeCommit(const std::string& summary
 std::string Changelog::FormatEntry(const CommitEntry& entry) {
     std::string short_hash = ShortHash(&entry.oid);
     std::string full_hash = FullHash(&entry.oid);
-    return entry.summary + " by " + entry.author_name + " in [#" + short_hash + "](" +
-           config_.url + "/commit/" + full_hash + ")";
+    return entry.summary + " by **@" + entry.author_name + "** in [#" + short_hash +
+           "](" + config_.url + "/commit/" + full_hash + ")";
 }
 
 bool Changelog::CommitTouchesPath(git_commit* commit, const std::string& path) const {
