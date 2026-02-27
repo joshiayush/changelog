@@ -1,5 +1,29 @@
 # Changelog
 
+## changelog@v0.2.0 — 2026-02-27
+
+### Feat
+
+- feat: add author name in the commit entry by **Ayush Joshi** in [#98af9fb](https://github.com/joshiayush/changelog/commit/98af9fbb09d66bf80e187ccc6a925319876f1edc)
+
+### Refactor
+
+- refactor: highlight author name in bold with "@" suffix by **Ayush Joshi** in [#e89c526](https://github.com/joshiayush/changelog/commit/e89c5265485a99605393230df95b69ede4bf67b2)
+
+### Revert
+
+- revert: remove "@" from the Author Name in commit entry as it's not a clickable link by **Ayush Joshi** in [#b9c6b45](https://github.com/joshiayush/changelog/commit/b9c6b4599a23d5a8c14e4a00a67a885f5593f3bf)
+
+### Fix
+
+- fix: add "revert" to `CommitType` by **Ayush Joshi** in [#023404d](https://github.com/joshiayush/changelog/commit/023404decf79e5f50b61469665b77205a6a22951)
+- fix: parse old changelogs written using changelog@v0.1.0 to filter from the new changelogs by **Ayush Joshi** in [#abcc5a9](https://github.com/joshiayush/changelog/commit/abcc5a93391c8f047c6b0b477db3363e3acd6c64)
+
+### Docs
+
+- docs: add changelog by **Ayush Joshi** in [#611f200](https://github.com/joshiayush/changelog/commit/611f200a81f0707145eb3cd70c6eb3da69e39685)
+
+
 ## changelog@v0.1.0 — 2026-02-24
 
 ### Feat
