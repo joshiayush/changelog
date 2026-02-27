@@ -63,20 +63,31 @@ static LibGit2Init g_libgit2_init;
 
 const std::map<CommitType, std::string>& CommitTypeNames() {
     static const std::map<CommitType, std::string> names = {
-        {CommitType::kAdd, "Add"},           {CommitType::kFeat, "Feat"},
-        {CommitType::kRefactor, "Refactor"}, {CommitType::kDeprecated, "Deprecated"},
-        {CommitType::kFix, "Fix"},           {CommitType::kDocs, "Docs"},
-        {CommitType::kTest, "Test"},         {CommitType::kPerf, "Perf"},
+        {CommitType::kAdd, "Add"},
+        {CommitType::kFeat, "Feat"},
+        {CommitType::kRefactor, "Refactor"},
+        {CommitType::kRevert, "Revert"},
+        {CommitType::kDeprecated, "Deprecated"},
+        {CommitType::kFix, "Fix"},
+        {CommitType::kDocs, "Docs"},
+        {CommitType::kTest, "Test"},
+        {CommitType::kPerf, "Perf"},
+
     };
     return names;
 }
 
 const std::map<std::string, CommitType>& PrefixToCommitType() {
     static const std::map<std::string, CommitType> prefixes = {
-        {"add", CommitType::kAdd},           {"feat", CommitType::kFeat},
-        {"refactor", CommitType::kRefactor}, {"deprecated", CommitType::kDeprecated},
-        {"fix", CommitType::kFix},           {"docs", CommitType::kDocs},
-        {"test", CommitType::kTest},         {"perf", CommitType::kPerf},
+        {"add", CommitType::kAdd},
+        {"feat", CommitType::kFeat},
+        {"refactor", CommitType::kRefactor},
+        {"revert", CommitType::kRevert},
+        {"deprecated", CommitType::kDeprecated},
+        {"fix", CommitType::kFix},
+        {"docs", CommitType::kDocs},
+        {"test", CommitType::kTest},
+        {"perf", CommitType::kPerf},
     };
     return prefixes;
 }

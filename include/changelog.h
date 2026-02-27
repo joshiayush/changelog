@@ -16,6 +16,7 @@ enum class CommitType {
     kAdd,
     kFeat,
     kRefactor,
+    kRevert,
     kDeprecated,
     kFix,
     kDocs,
