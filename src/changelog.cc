@@ -176,11 +176,12 @@ std::optional<CommitType> Changelog::CategorizeCommit(const std::string& summary
     return std::nullopt;
 }
 
-std::string Changelog::FormatEntry(const std::string& summary, const git_oid* oid) {
+std::string Changelog::FormatEntry(const std::string& summary, const git_oid* oid,
+                                   const git_signature* author) {
     std::string short_hash = ShortHash(oid);
     std::string full_hash = FullHash(oid);
-    return summary + " ([#" + short_hash + "](" + config_.url + "/commit/" + full_hash +
-           "))";
+    return summary + " by " + author->name + " in [#" + short_hash + "](" +
+           config_.url + "/commit/" + full_hash + ")";
 }
 
 bool Changelog::CommitTouchesPath(git_commit* commit, const std::string& path) const {
@@ -246,7 +247,7 @@ SectionData Changelog::GetGitLogs(const std::string& follow_path) {
         auto type = CategorizeCommit(summary);
         if (!type) continue;
 
-        std::string entry = FormatEntry(summary, &oid);
+        std::string entry = FormatEntry(summary, &oid, git_commit_author(commit.get()));
         data.entries[*type].insert(entry);
 
         spdlog::debug("{} -> {}", CommitTypeNames().at(*type), entry);
@@ -507,8 +508,7 @@ void Changelog::Generate() {
             for (const auto& [type, _] : data.entries) {
                 types.insert(type);
             }
-            new_ver =
-                ComputeNextVersion(last_version, types, data.has_breaking_change);
+            new_ver = ComputeNextVersion(last_version, types, data.has_breaking_change);
         }
         std::string versioned_name = name + "@" + new_ver.ToString();
         new_versioned.emplace_back(versioned_name, std::move(data));

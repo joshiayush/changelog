@@ -79,9 +79,8 @@ class Changelog {
     static std::set<std::string> FlattenEntries(
         const std::vector<ParsedSection>& sections);
 
-    static SectionData FilterNewEntries(
-        const SectionData& current,
-        const std::set<std::string>& existing_entries);
+    static SectionData FilterNewEntries(const SectionData& current,
+                                        const std::set<std::string>& existing_entries);
 
     static std::optional<CommitType> CategorizeCommit(const std::string& summary);
     static bool IsBreakingChange(const std::string& summary);
@@ -95,7 +94,8 @@ class Changelog {
     bool CommitTouchesPath(git_commit* commit, const std::string& path) const;
 
     std::string SSH2HTTPS(const std::string url);
-    std::string FormatEntry(const std::string& summary, const git_oid* oid);
+    std::string FormatEntry(const std::string& summary, const git_oid* oid,
+                            const git_signature* author);
 
     Config config_;
     git_repository* repo_ = nullptr;
